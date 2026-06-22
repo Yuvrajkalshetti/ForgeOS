@@ -21,10 +21,14 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["ruff>=0.5", "mypy>=1.10", "pytest>=8.0", "types-PyYAML", "types-jsonschema"]
+# Optional MCP transport (V2). Kept out of the core install so `forge` (CLI) has
+# no MCP dependency; required only for `forgeos-mcp` and the MCP adapter tests.
+mcp = ["mcp>=1.6"]
 
 [project.scripts]
 forge = "forgeos.adapters.transport.cli.app:main"
 forgeos = "forgeos.adapters.transport.cli.app:main"
+forgeos-mcp = "forgeos.adapters.transport.mcp.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/forgeos"]
@@ -51,6 +55,13 @@ strict = true
 files = ["src"]
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+# The optional MCP SDK has no bundled stubs in some environments; tolerate a
+# missing import so mypy never hard-fails when the `mcp` extra is absent. Does
+# not relax any check on first-party (forgeos) code.
+[[tool.mypy.overrides]]
+module = ["mcp.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
