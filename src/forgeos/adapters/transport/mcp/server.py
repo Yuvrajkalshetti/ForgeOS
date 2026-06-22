@@ -164,7 +164,9 @@ async def forgeos_advisory_context(
     root = Path(project)
     store = open_store(root)
     config = load_config(project_dir=root)
-    builder = AdvisoryContextBuilder(GraphStore(store), store, MemoryService(store), LocalEstimator())
+    builder = AdvisoryContextBuilder(
+        GraphStore(store), store, MemoryService(store), LocalEstimator()
+    )
     adr = root / "docs" / "adr"
     bundle = builder.for_mentor(
         focus,
