@@ -42,7 +42,7 @@ pwsh -File install.ps1     # Windows
 Or install directly with uv — use this form to also get the MCP server (`forgeos-mcp`):
 
 ```bash
-uv tool install ".[mcp]"   # installs forgeos, forge, and forgeos-mcp
+uv tool install ".[mcp]"   # installs forgeos, forge, and forgeos-mcp on your PATH
 ```
 
 Verify:
@@ -64,7 +64,7 @@ all-zero counts is normal, not a bug.) In any project:
 ```bash
 cd /path/to/your/project
 forgeos init                     # create .forgeos/ (idempotent, non-destructive)
-forgeos scan .                   # index files/modules/dependencies into the knowledge graph
+forgeos scan                     # index the current dir (files/modules/deps) into the graph
 forgeos compress run --bulk      # build compact “cards” (cheap summaries of code)
 forgeos memory add "We use uv + hatchling; mypy strict on src/"   # remember a fact
 forgeos status                   # counts should now be non-zero
@@ -73,7 +73,7 @@ forgeos status                   # counts should now be non-zero
 Query what it now knows:
 
 ```bash
-forgeos memory query "uv"             # recall stored memory
+forgeos memory query                  # list stored memory (filter with --scope / --kind)
 forgeos graph query <file-or-label>   # explore the graph (`graph why <id>` explains an edge)
 forgeos skill list                    # skills promoted via the learning loop
 ```
@@ -109,8 +109,8 @@ which forgeos-mcp                 # copy this path (from a clone use: uv run whi
 **Claude Code:**
 
 ```bash
-claude mcp add forgeos -- /ABS/PATH/TO/forgeos-mcp   # path from `which` above; add -s user for all projects
-claude mcp list                                       # should show forgeos ... ✓ Connected
+claude mcp add forgeos -s user -- /ABS/PATH/TO/forgeos-mcp   # path from `which` above; -s user = all projects
+claude mcp list                                              # should show forgeos ... ✓ Connected
 ```
 
 Then work from the project directory so tools default to `project="."`:
@@ -148,7 +148,7 @@ Three habits make ForgeOS pay off — its value compounds as you feed it:
 
 1. **Feed** (periodic, CLI): re-`scan` after notable changes; record decisions/gotchas as you go.
    ```bash
-   forgeos scan .
+   forgeos scan
    forgeos memory add "Tokens cached in keychain; switch gh accounts with `gh auth switch`"
    forgeos memory add "MCP tools must return data, never print to stdout" --kind observation
    ```
@@ -178,12 +178,12 @@ forgeos status               # workspace state at a glance
 forgeos wizard               # guided first-run walkthrough
 
 # build + query knowledge
-forgeos scan .               # index the repo into memory + knowledge graph
+forgeos scan                 # index the current dir (or: scan --path <dir>)
 forgeos compress run --bulk  # build context cards
 forgeos memory add "<text>"  # store a memory (--scope, --kind, --ttl)
-forgeos memory query "<text>"
-forgeos graph query "<text>" # graph why <id> explains an edge
-forgeos context build <target>   # assemble a token-budgeted context bundle
+forgeos memory query         # list memory (filter with --scope / --kind)
+forgeos graph query <node-id-or-label>   # `graph why <id>` explains an edge
+forgeos context build <target>           # assemble a token-budgeted context bundle
 
 # advisory (provider-backed CLI; MCP uses host reasoning instead)
 forgeos mentor "<question>"   # advisory guidance (read-only; never executes)
@@ -243,15 +243,19 @@ provides a stdlib-only substitute (syntax + annotation + import-hygiene checks).
 
 ## Troubleshooting
 
-- **All counts are `0` / MCP tools return nothing** — the store is empty. Run `forgeos scan .`
+- **All counts are `0` / MCP tools return nothing** — the store is empty. Run `forgeos scan`
   and add a memory or two first (see *First 5 minutes*).
+- **`scan .` errors with “unexpected extra argument”** — `scan` takes no positional path; use
+  bare `forgeos scan` (current dir) or `forgeos scan --path <dir>`.
 - **`doctor` shows `credentials: FAIL`** — this only affects the provider-backed `forge mentor`
   CLI. Every MCP tool and all read-only commands work without it. To clear it, pick a local
   provider: `forgeos provider use ollama` (no API key), or just ignore it.
+- **`provider` shows `claude`/`ollama` but you only use Claude Code** — that field is the CLI's
+  external-model setting; the MCP tools never use it. Ignore it for the Claude workflow.
 - **`claude: command not found`, or it asks you to choose a profile** — your Claude Code is a
   profile wrapper; use the real command (e.g. `claude-personal` / `claude-fictiv`) everywhere
   this guide says `claude`.
-- **`/mcp` doesn't list `forgeos`** — re-run `claude mcp add forgeos -- $(which forgeos-mcp)`
+- **`/mcp` doesn't list `forgeos`** — re-run `claude mcp add forgeos -s user -- $(which forgeos-mcp)`
   and start a fresh session from the project directory.
 - **`forgeos-mcp: command not found`** — install the MCP extra: `uv tool install ".[mcp]"`
   (or `uv sync --extra mcp` from a clone).
