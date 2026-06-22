@@ -57,13 +57,56 @@ forgeos backup                      # snapshot with retention pruning
 > `forge` and `forgeos` are the same CLI (two console aliases). Run `forgeos --help` for
 > the full command surface.
 
+## Use inside Claude (MCP)
+ForgeOS ships an optional **MCP server** (`forgeos-mcp`) so a Claude host — Claude Code or
+Claude Desktop — can call ForgeOS as tools mid-conversation. It is a thin transport over the
+same services as the CLI (ADR 0007); no business logic lives in it, and the `mcp` dependency
+is optional (the `forge`/`forgeos` CLI never imports it).
+
+Phase 1 tools: `forgeos_status`, `forgeos_doctor`, `forgeos_skill_list`, `forgeos_skill_show`,
+`forgeos_graph_summary`, `forgeos_memory_summary` (all **read-only**), and `forgeos_mentor`
+(the only tool that calls a provider; it also records an advisory session).
+
+Install the optional extra and note the server path:
+```bash
+uv sync --extra mcp                 # from a clone;  or:  uv tool install ".[mcp]"
+uv run which forgeos-mcp            # copy this absolute path for the steps below
+```
+
+**Claude Code:**
+```bash
+# register once (use the absolute path from `which` above; add -s user for all projects)
+claude mcp add forgeos -- /ABS/PATH/TO/.venv/bin/forgeos-mcp
+claude mcp list                     # confirm it is registered
+
+cd /path/to/your/project && claude  # tools default to project="." = the launch directory
+# inside the session:  /mcp         # confirms `forgeos` is connected (7 tools)
+```
+Then ask in plain language, e.g. *"using forgeos, show status and run doctor"*. The six
+read-only tools need **no provider**. If you start `claude` outside the project, name the
+path instead: *"run forgeos_status for project /path/to/project"*.
+
+**Claude Desktop:** add to `~/Library/Application Support/Claude/claude_desktop_config.json`,
+then fully restart Claude Desktop:
+```json
+{ "mcpServers": { "forgeos": { "command": "/ABS/PATH/TO/.venv/bin/forgeos-mcp", "args": [] } } }
+```
+Pass the project path in chat since the server's working directory may differ.
+
+**Provider for `forgeos_mentor`** — select a provider once; local Ollama needs no API key:
+```bash
+forgeos provider use ollama         # then `forgeos doctor` should report: needs no key
+```
+If no provider is reachable, `forgeos_mentor` returns a structured `{"error": ...}` rather
+than failing the server; the read-only tools are unaffected.
+
 ## Layout
 ```
 src/forgeos/
   config/         layered configuration (defaults -> ~/.forgeos -> project/.forgeos -> env)
   observability/  structured logging with request correlation
   ports/          abstract interfaces (storage, provider, transport, tokenizer, vector)
-  adapters/       concrete implementations (transport/cli, ... )
+  adapters/       concrete implementations (transport/cli, transport/mcp, ... )
   testing/        in-memory fakes + static guards for tests
 docs/             architecture, implementation plan, ADRs
 tests/            unit tests + golden repository corpus
