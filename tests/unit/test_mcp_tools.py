@@ -8,8 +8,9 @@ from forgeos.adapters.transport.mcp import server as mcp
 from forgeos.catalog import Collections
 from forgeos.core.memory import MemoryKind, MemoryScope, MemoryService
 from forgeos.core.memory.models import Source
-from forgeos.ports.provider import ProviderRequest, ProviderResult, Usage
 
+# Includes TOKEN_EVENTS so the read-only invariant also guards against the
+# context-assembly ledger write (advisory_context must build with no ledger).
 _RO_COLLECTIONS = [
     Collections.MEMORY,
     Collections.NODES,
@@ -17,17 +18,8 @@ _RO_COLLECTIONS = [
     Collections.CARDS,
     Collections.PROPOSALS,
     Collections.ADVISORY_SESSIONS,
+    Collections.TOKEN_EVENTS,
 ]
-_MENTOR_JSON = '{"kind":"proposal","understanding":"u","recommendation":"r","proposed_plan":["s1"]}'
-
-
-class _JsonProvider:
-    name = "fake"
-
-    async def generate(self, request: ProviderRequest) -> ProviderResult:
-        return ProviderResult(
-            text=_MENTOR_JSON, model=request.model, usage=Usage(1, 1), latency_ms=0.0
-        )
 
 
 def _seed_memory(project: Path) -> None:
@@ -67,6 +59,15 @@ def test_skill_and_graph_tools_handle_missing(tmp_project: Path) -> None:
     assert "error" in asyncio.run(mcp.forgeos_graph_summary("nope", project=str(tmp_project)))
 
 
+def test_advisory_context_returns_grounding_bundle(tmp_project: Path) -> None:
+    bundle = asyncio.run(mcp.forgeos_advisory_context("review", project=str(tmp_project)))
+    # Empty project -> a well-formed but empty grounding bundle, no provider call.
+    assert bundle["target"] == "review"
+    assert bundle["items"] == []
+    assert "manifest" in bundle
+    assert bundle["total_tokens"] == 0
+
+
 def test_read_only_tools_do_not_mutate(tmp_project: Path) -> None:
     _seed_memory(tmp_project)
     before = _counts(tmp_project)
@@ -76,21 +77,5 @@ def test_read_only_tools_do_not_mutate(tmp_project: Path) -> None:
     asyncio.run(mcp.forgeos_skill_show("x", str(tmp_project)))
     asyncio.run(mcp.forgeos_graph_summary("x", project=str(tmp_project)))
     asyncio.run(mcp.forgeos_memory_summary(project=str(tmp_project)))
+    asyncio.run(mcp.forgeos_advisory_context("x", project=str(tmp_project)))
     assert _counts(tmp_project) == before
-
-
-def test_mentor_returns_error_without_provider(tmp_project: Path, monkeypatch) -> None:
-    def _raise(*a, **k):
-        raise mcp.ProviderUnavailable("no key")
-
-    monkeypatch.setattr(mcp, "build_provider", _raise)
-    result = asyncio.run(mcp.forgeos_mentor("review", ground=False, project=str(tmp_project)))
-    assert result["error"] == "no key"
-
-
-def test_mentor_runs_with_fake_provider(tmp_project: Path, monkeypatch) -> None:
-    monkeypatch.setattr(mcp, "build_provider", lambda *a, **k: _JsonProvider())
-    result = asyncio.run(mcp.forgeos_mentor("review", ground=False, project=str(tmp_project)))
-    assert result["session_id"]
-    assert result["recommendation"]["recommendation"] == "r"
-    assert result["grounding"] is None

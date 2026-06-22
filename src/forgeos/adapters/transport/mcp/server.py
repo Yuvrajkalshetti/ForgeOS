@@ -1,14 +1,15 @@
 """ForgeOS MCP stdio transport (V2 Phase 1).
 
-Exposes existing ForgeOS services as MCP tools so a Claude-connected host (Claude
-Desktop / Claude Code) can drive ForgeOS from chat. Per ADR 0007 this is a thin
-transport adapter: it adapts the MCP protocol to the same services the CLI uses
-and contains no business logic, which is what preserves CLI/MCP parity.
+Exposes existing ForgeOS services as MCP tools so a Claude host (Claude Code /
+Claude Desktop) can drive ForgeOS from chat. Per ADR 0007 this is a thin transport
+adapter: it adapts the MCP protocol to the same services the CLI uses and contains
+no business logic, which is what preserves CLI/MCP parity.
 
-Six tools are read-only (``readOnlyHint=True``). ``forgeos_mentor`` is an action
-tool: it writes advisory bookkeeping (a recommendation node + advisory session)
-and makes a live call to the configured provider, so it is annotated
-``readOnlyHint=False``.
+All seven tools are **read-only** (``readOnlyHint=True``) and require **no LLM
+provider** — in the MCP model the host (Claude Code) is the reasoning model. In
+particular ``forgeos_advisory_context`` returns Mentor's provider-free grounding
+bundle (built with no token ledger, so nothing is persisted) for the host to reason
+over, instead of ForgeOS making its own provider call (ADR 0014).
 
 stdout carries only the MCP protocol; logging is configured to stderr
 (:func:`forgeos.observability.configure_logging`), keeping the channel clean.
@@ -24,18 +25,13 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from forgeos.adapters.providers import MeteredProvider
-from forgeos.adapters.providers.factory import ProviderUnavailable, build_provider
 from forgeos.adapters.tokenizer import LocalEstimator
-from forgeos.adapters.transport.cli._shared import open_store, provider_model
+from forgeos.adapters.transport.cli._shared import open_store
 from forgeos.catalog import Collections
 from forgeos.config.loader import load_config
-from forgeos.core.advisory import AdvisoryContextBuilder, AdvisorySessionStore, Mentor
-from forgeos.core.context_assembly.models import ContextBundle
+from forgeos.core.advisory import AdvisoryContextBuilder
 from forgeos.core.graph import GraphStore, NodeType
 from forgeos.core.memory import MemoryKind, MemoryScope, MemoryService
-from forgeos.core.provider_intel import StatsRecorder
-from forgeos.core.token_intel import TokenLedger
 from forgeos.observability import configure_logging, new_request_id
 
 _FORGEOS_DIR = ".forgeos"
@@ -151,61 +147,34 @@ async def forgeos_memory_summary(
     return [r.model_dump(mode="json") for r in records]
 
 
-@mcp_app.tool(
-    annotations=ToolAnnotations(
-        readOnlyHint=False,
-        destructiveHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
-    )
-)
-async def forgeos_mentor(
-    request: str,
-    target: list[str] | None = None,
+@mcp_app.tool(annotations=_READ_ONLY)
+async def forgeos_advisory_context(
+    focus: str,
     depth: int = 2,
-    ground: bool = True,
+    budget: int | None = None,
     project: str = ".",
 ) -> dict[str, Any]:
-    """Run Mentor advisory analysis, grounded in ForgeOS knowledge.
+    """Assemble Mentor's provider-free grounding bundle for a focus node or topic.
 
-    NOT read-only: persists a recommendation node + advisory session and makes a
-    live call to the configured LLM provider. Returns ``{"error": ...}`` (instead
-    of crashing) when no provider is configured.
+    Returns the same deterministic ``ContextBundle`` that ``forge mentor`` would feed
+    to an LLM — cards, memory, ADRs, repo profile, decisions, findings — so the host
+    model (Claude Code) can do the reasoning itself. Read-only: built with no token
+    ledger, so nothing is persisted (ADR 0014).
     """
     root = Path(project)
     store = open_store(root)
     config = load_config(project_dir=root)
-    try:
-        inner = build_provider(config)
-    except ProviderUnavailable as exc:
-        return {"error": str(exc)}
-
-    provider = MeteredProvider(inner, StatsRecorder(store), TokenLedger(store), LocalEstimator())
-    graph = GraphStore(store)
-    grounding: ContextBundle | None = None
-    if ground:
-        adr = root / "docs" / "adr"
-        builder = AdvisoryContextBuilder(
-            graph, store, MemoryService(store), LocalEstimator(), TokenLedger(store)
-        )
-        grounding = builder.for_mentor(
-            target[0] if target else request,
-            budget=config.tokens.per_request or 8000,
-            depth=depth,
-            adr_dir=adr if adr.is_dir() else None,
-            allow_source=False,
-            source_root=root,
-        )
-
-    rec = await Mentor(provider, graph).advise(
-        request, model=provider_model(config), grounding=grounding, targets=target
+    builder = AdvisoryContextBuilder(GraphStore(store), store, MemoryService(store), LocalEstimator())
+    adr = root / "docs" / "adr"
+    bundle = builder.for_mentor(
+        focus,
+        budget=budget if budget is not None else (config.tokens.per_request or 8000),
+        depth=depth,
+        adr_dir=adr if adr.is_dir() else None,
+        allow_source=False,
+        source_root=root,
     )
-    session = AdvisorySessionStore(store).start(request, rec.id)
-    return {
-        "recommendation": rec.model_dump(mode="json"),
-        "session_id": session.id,
-        "grounding": grounding.model_dump(mode="json") if grounding else None,
-    }
+    return bundle.model_dump(mode="json")
 
 
 class MCPTransport:
