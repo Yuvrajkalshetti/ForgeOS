@@ -63,9 +63,16 @@ Claude Desktop — can call ForgeOS as tools mid-conversation. It is a thin tran
 same services as the CLI (ADR 0007); no business logic lives in it, and the `mcp` dependency
 is optional (the `forge`/`forgeos` CLI never imports it).
 
-Phase 1 tools: `forgeos_status`, `forgeos_doctor`, `forgeos_skill_list`, `forgeos_skill_show`,
-`forgeos_graph_summary`, `forgeos_memory_summary` (all **read-only**), and `forgeos_mentor`
-(the only tool that calls a provider; it also records an advisory session).
+**All seven tools are read-only and require no LLM provider** — in the MCP model the host
+(Claude Code) is the reasoning model (ADR 0014). No API key, no Ollama:
+
+- `forgeos_status`, `forgeos_doctor` — project state + readiness diagnostics
+- `forgeos_skill_list`, `forgeos_skill_show` — inspect promoted skills
+- `forgeos_graph_summary` — traverse the knowledge graph
+- `forgeos_memory_summary` — query stored memory
+- `forgeos_advisory_context` — assemble Mentor's deterministic, provider-free grounding
+  bundle (cards, memory, ADRs, repo profile, decisions, findings) for the host model to
+  reason over
 
 Install the optional extra and note the server path:
 ```bash
@@ -77,14 +84,15 @@ uv run which forgeos-mcp            # copy this absolute path for the steps belo
 ```bash
 # register once (use the absolute path from `which` above; add -s user for all projects)
 claude mcp add forgeos -- /ABS/PATH/TO/.venv/bin/forgeos-mcp
-claude mcp list                     # confirm it is registered
+claude mcp list                     # confirm it is registered + connected
 
 cd /path/to/your/project && claude  # tools default to project="." = the launch directory
 # inside the session:  /mcp         # confirms `forgeos` is connected (7 tools)
 ```
-Then ask in plain language, e.g. *"using forgeos, show status and run doctor"*. The six
-read-only tools need **no provider**. If you start `claude` outside the project, name the
-path instead: *"run forgeos_status for project /path/to/project"*.
+Then ask in plain language, e.g. *"using forgeos, show status and run doctor"*, or
+*"using forgeos, get the advisory context for the memory module and review it"* — Claude
+Code reasons over the grounding the tool returns. If you start `claude` outside the
+project, name the path instead: *"run forgeos_status for project /path/to/project"*.
 
 **Claude Desktop:** add to `~/Library/Application Support/Claude/claude_desktop_config.json`,
 then fully restart Claude Desktop:
@@ -92,13 +100,6 @@ then fully restart Claude Desktop:
 { "mcpServers": { "forgeos": { "command": "/ABS/PATH/TO/.venv/bin/forgeos-mcp", "args": [] } } }
 ```
 Pass the project path in chat since the server's working directory may differ.
-
-**Provider for `forgeos_mentor`** — select a provider once; local Ollama needs no API key:
-```bash
-forgeos provider use ollama         # then `forgeos doctor` should report: needs no key
-```
-If no provider is reachable, `forgeos_mentor` returns a structured `{"error": ...}` rather
-than failing the server; the read-only tools are unaffected.
 
 ## Layout
 ```
