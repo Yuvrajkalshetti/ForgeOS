@@ -2,8 +2,8 @@
 
 _Last updated: 2026-06-22_
 
-An honest snapshot of what's shipped, in progress, and deferred. The decisions behind
-each item live in `docs/adr/`.
+An honest snapshot of what's shipped, in progress, and deferred. The decisions behind each
+item live in `docs/adr/`.
 
 ## V1 — shipped (v1.0.0)
 
@@ -33,24 +33,35 @@ All components are built and unit-tested:
   `forgeos_memory_summary`, `forgeos_advisory_context`. No provider required — the host model
   (Claude) does the reasoning (ADR 0007, 0013, 0014). CI-verified and tested live in Claude Code.
 - ✅ **Claude Code integration** — verified live.
-- 🔄 **Claude Desktop integration** — documented (config provided in the README); not yet
-  verified end-to-end.
-- 🔄 **Broader MCP (write / action tools)** — deliberately deferred; the MCP surface is
-  read-only by design.
+- 🔄 **Claude Desktop integration** — documented (config in the README); not yet verified end-to-end.
+- 🔄 **Broader MCP (write / action tools)** — deliberately deferred; the MCP surface is read-only by design.
 
 > The former provider-calling `forgeos_mentor` MCP tool was **replaced** by
 > `forgeos_advisory_context` (read-only grounding; the host model reasons) — see ADR 0014.
 > The provider-backed `forge mentor` CLI command is unchanged.
 
+## V2 — Execution Intelligence (architecture approved; implementation not started)
+
+Design accepted in **ADR 0015**; phased plan in `docs/PLAN-V2-execution-intelligence.md`.
+Python-first, deterministic/offline/provider-free, built on the existing graph via a new
+isolated engine + new collections. **No code written yet.**
+
+- 🔄 **E1** — Python symbol graph (`Function`/`Method`/`Class` + `DEFINES`/`OVERRIDES`/`EXTENDS`)
+- 🔄 **E2** — Python call graph (`CALLS`, confidence-tagged)
+- 🔄 **E3** — impact & path queries + read-only MCP tools (`who_calls`, `call_graph`, `impact_analysis`, `paths_to`)
+- 🔄 **E4** — state & ownership (`READS`/`WRITES`, derived + declared `OWNS`)
+- 🔄 **E5** — structural data flow (anchored)
+
+> Scope note: Python-first. TS/JS call graphs and dynamic/runtime tracing are **out of scope**
+> for E1–E5 (separate, heavier, separately-approved tracks) — so cross-language flows through
+> the Next.js UI are not covered.
+
 ## Future — not approved
 
 Out of scope until explicitly approved:
 
-- ⏳ Execution Intelligence
-- ⏳ Call Graphs
-- ⏳ Runtime Ownership
-- ⏳ Data Flow Analysis
 - ⏳ Full Skill Graph (lifecycle / versioning / search / invocation) — deferred per ADR 0012
 - ⏳ Dashboard
 - ⏳ Voice
 - ⏳ Organization Layer
+- ⏳ Vector / embedding retrieval — `VectorPort` seam exists but is unwired (ADR 0003)
