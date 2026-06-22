@@ -24,6 +24,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
+from forgeos import __version__
 from forgeos.adapters.providers import MeteredProvider
 from forgeos.adapters.providers.factory import ProviderUnavailable, build_provider
 from forgeos.adapters.tokenizer import LocalEstimator
@@ -41,7 +42,7 @@ from forgeos.observability import configure_logging, new_request_id
 _FORGEOS_DIR = ".forgeos"
 _READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 
-mcp_app = FastMCP("forgeos")
+mcp_app = FastMCP("forgeos", version=__version__)
 
 
 @mcp_app.tool(annotations=_READ_ONLY)
