@@ -12,8 +12,8 @@ Use it two ways, together or separately:
   assistant reasons with *your* accumulated project knowledge. **No API key or extra model
   required** — your Claude host is the model.
 
-> Status: **V1.0.0**, CLI-first. Architecture in `docs/ARCHITECTURE.md`; design decisions in
-> `docs/adr/`; per-release changes in `CHANGELOG.md`.
+> Status: **V1.0.0**, CLI-first. Current status & roadmap: `docs/ROADMAP.md`. Architecture in
+> `docs/ARCHITECTURE.md`; design decisions in `docs/adr/`; per-release changes in `CHANGELOG.md`.
 
 ---
 
@@ -219,7 +219,7 @@ src/forgeos/
   adapters/       concrete implementations (transport/cli, transport/mcp, storage, providers, ...)
   core/           memory, graph, repo-intel, compression, context assembly, advisory, learning
   testing/        in-memory fakes + static guards for tests
-docs/             architecture, implementation plan, ADRs
+docs/             architecture, implementation plan, ADRs, ROADMAP
 tests/            unit tests + golden repository corpus
 ```
 
