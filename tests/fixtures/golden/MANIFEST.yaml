@@ -1,0 +1,31 @@
+# Golden Repository Test Corpus — regression baseline.
+#
+# Small/medium/monorepo fixtures exercise RepoIntel, the Knowledge Graph,
+# Compression, and Context Assembly. Expected counts are filled in as each
+# engine lands; P0 only asserts presence and that this manifest parses.
+schema_version: 1
+corpora:
+  small:
+    root: small
+    description: Single package with internal imports.
+    python_files: 3
+    expected:
+      modules: 1          # app
+      internal_edges: 0   # core -> utils is intra-module (same package), not a cross-module edge
+      external_deps: 0
+  medium:
+    root: medium
+    description: Two packages, cross-imports, one external dependency.
+    python_files: 4
+    expected:
+      modules: 2          # pkg_a, pkg_b
+      internal_edges: 1   # pkg_a.mod -> pkg_b.helper
+      external_deps: 1    # httpx
+  monorepo:
+    root: monorepo
+    description: Two services plus a shared library.
+    python_files: 6
+    expected:
+      modules: 3          # auth, billing, shared
+      internal_edges: 2   # auth -> shared, billing -> shared
+      external_deps: 0

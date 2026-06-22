@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "forgeos"
+version = "1.0.0"
+description = "ForgeOS — a local-first AI Operating System: memory, knowledge graphs, context compression, and agent orchestration that preserves knowledge while sending fewer tokens."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "ForgeOS" }]
+dependencies = [
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+    "typer>=0.12",
+    "rich>=13.0",
+    "httpx>=0.27",
+    "jsonschema>=4.0",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.5", "mypy>=1.10", "pytest>=8.0", "types-PyYAML", "types-jsonschema"]
+
+[project.scripts]
+forge = "forgeos.adapters.transport.cli.app:main"
+forgeos = "forgeos.adapters.transport.cli.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/forgeos"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "PL", "RUF"]
+# PLR2004: magic-value comparisons are idiomatic in assertions/thresholds here.
+# UP042: `(str, Enum)` is a deliberate, pydantic-friendly pattern (StrEnum would change semantics).
+ignore = ["PLR0913", "PLR2004", "UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test files legitimately use local imports, long JSON fixtures, single-element
+# slices, and unused unpacked vars in setup helpers.
+"tests/**" = ["E501", "PLC0415", "RUF015", "RUF059", "F841", "PLW1510"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+addopts = "-q"

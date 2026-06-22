@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ForgeOS runtime artifacts (SQLite is a rebuildable cache; YAML snapshots are source of truth)
+*.sqlite
+*.sqlite-*
+.forgeos/cache/
+~/.forgeos/backups/
+
+# Secrets — never commit provider keys
+.env
+*.key
+*.pem
+.fictiv-mcp.env
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
