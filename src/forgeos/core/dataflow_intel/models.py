@@ -1,9 +1,10 @@
-"""Data Flow Intelligence models (V2, E5A — ADR 0017).
+"""Data Flow Intelligence models (V2, E5A/E5B.1 — ADR 0017/0018).
 
-State symbols are class attributes (``<Class>.<attr>``) reached via ``self`` — the only
-receiver whose type is known without inference. READS/WRITES edges link a function/method
-(exec node id) to a state symbol. Stored in their own ``df_nodes``/``df_edges`` collections,
-separate from the CALLS/DEFINES/EXTENDS graph.
+State symbols are class attributes (``<Class>.<attr>``). READS/WRITES edges link a
+function/method (exec node id) to a state symbol, tagged with how the receiver was
+resolved: ``self`` (enclosing class), ``annotation`` (declared param/local type), or
+``constructor`` (direct ``T()`` binding). Stored in their own ``df_nodes``/``df_edges``
+collections, separate from the CALLS/DEFINES/EXTENDS graph.
 """
 
 from __future__ import annotations
@@ -42,18 +43,20 @@ class DfEdge(BaseModel):
     src_id: str
     dst_id: str
     type: DfEdgeType
+    resolution: str = "self"  # self | annotation | constructor
     created_at: datetime.datetime = Field(default_factory=utcnow)
 
 
 @dataclass
 class DataFlowScanResult:
-    """Summary of a data-flow scan, including the E5B resolution-effectiveness gate."""
+    """Summary of a data-flow scan, including the resolution-effectiveness measurement."""
 
     files: int = 0
     state_symbols: int = 0
     reads_edges: int = 0
     writes_edges: int = 0
-    # Resolution measurement over every ``recv.attr`` access (count-only; gates E5B).
+    typed_edges: int = 0  # cross-object edges from annotation/constructor resolution
+    # Resolution measurement over every ``recv.attr`` access.
     total_attribute_accesses: int = 0
     resolved_self: int = 0
     resolved_annotation: int = 0
