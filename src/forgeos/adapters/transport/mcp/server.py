@@ -1,15 +1,14 @@
-"""ForgeOS MCP stdio transport (V2 Phase 1).
+"""ForgeOS MCP stdio transport (V2).
 
 Exposes existing ForgeOS services as MCP tools so a Claude host (Claude Code /
 Claude Desktop) can drive ForgeOS from chat. Per ADR 0007 this is a thin transport
 adapter: it adapts the MCP protocol to the same services the CLI uses and contains
 no business logic, which is what preserves CLI/MCP parity.
 
-All seven tools are **read-only** (``readOnlyHint=True``) and require **no LLM
-provider** — in the MCP model the host (Claude Code) is the reasoning model. In
-particular ``forgeos_advisory_context`` returns Mentor's provider-free grounding
-bundle (built with no token ledger, so nothing is persisted) for the host to reason
-over, instead of ForgeOS making its own provider call (ADR 0014).
+All tools are **read-only** (``readOnlyHint=True``) and require **no LLM provider** —
+the host (Claude) is the reasoning model. ``forgeos_advisory_context`` returns Mentor's
+provider-free grounding bundle (ADR 0014); the ``forgeos_*`` execution tools query the
+Execution Intelligence call graph (ADR 0015), defaulting to ``min_confidence=resolved``.
 
 stdout carries only the MCP protocol; logging is configured to stderr
 (:func:`forgeos.observability.configure_logging`), keeping the channel clean.
@@ -30,12 +29,16 @@ from forgeos.adapters.transport.cli._shared import open_store
 from forgeos.catalog import Collections
 from forgeos.config.loader import load_config
 from forgeos.core.advisory import AdvisoryContextBuilder
+from forgeos.core.exec_intel import ExecGraphStore
+from forgeos.core.exec_intel.models import Confidence
+from forgeos.core.exec_intel.query import callees, callers, impact, paths_to, resolve
 from forgeos.core.graph import GraphStore, NodeType
 from forgeos.core.memory import MemoryKind, MemoryScope, MemoryService
 from forgeos.observability import configure_logging, new_request_id
 
 _FORGEOS_DIR = ".forgeos"
 _READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+_CONF_BY_NAME: dict[str, Confidence] = {c.value: c for c in Confidence}
 
 mcp_app = FastMCP("forgeos")
 
@@ -177,6 +180,94 @@ async def forgeos_advisory_context(
         source_root=root,
     )
     return bundle.model_dump(mode="json")
+
+
+def _exec_confidence(value: str) -> Confidence:
+    return _CONF_BY_NAME.get(value, Confidence.RESOLVED)
+
+
+def _brief(store: ExecGraphStore, node_id: str) -> dict[str, Any]:
+    node = store.get_node(node_id)
+    if node is None:
+        return {"id": node_id}
+    return {"id": node.id, "type": node.type.value, "label": node.label, "file": node.file}
+
+
+def _resolve_target(
+    store: ExecGraphStore, target: str
+) -> tuple[str | None, dict[str, Any] | None]:
+    ids = resolve(store, target)
+    if not ids:
+        return None, {"error": f"symbol not found: {target}"}
+    if len(ids) > 1:
+        return None, {"error": f"ambiguous symbol: {target}", "candidates": ids[:25]}
+    return ids[0], None
+
+
+@mcp_app.tool(annotations=_READ_ONLY)
+async def forgeos_symbol(query: str, project: str = ".") -> list[dict[str, Any]]:
+    """Find code symbols (function/method/class) whose qualname contains ``query``."""
+    store = ExecGraphStore(open_store(Path(project)))
+    matches = [n for n in store.nodes() if query in n.label]
+    return [_brief(store, n.id) for n in matches[:50]]
+
+
+@mcp_app.tool(annotations=_READ_ONLY)
+async def forgeos_call_graph(
+    target: str,
+    direction: str = "callees",
+    depth: int = 2,
+    min_confidence: str = "resolved",
+    project: str = ".",
+) -> dict[str, Any]:
+    """Callers or callees of a symbol over the CALLS graph (direction: callers|callees)."""
+    store = ExecGraphStore(open_store(Path(project)))
+    node_id, err = _resolve_target(store, target)
+    if node_id is None:
+        return err if err is not None else {"error": "unresolved"}
+    conf = _exec_confidence(min_confidence)
+    found = (
+        callers(store, node_id, depth, conf)
+        if direction == "callers"
+        else callees(store, node_id, depth, conf)
+    )
+    return {
+        "target": node_id,
+        "direction": direction,
+        "symbols": [_brief(store, i) for i in found],
+    }
+
+
+@mcp_app.tool(annotations=_READ_ONLY)
+async def forgeos_impact_analysis(
+    target: str, min_confidence: str = "resolved", project: str = "."
+) -> dict[str, Any]:
+    """Transitive callers of a symbol (what may break if it changes) + the files touched."""
+    store = ExecGraphStore(open_store(Path(project)))
+    node_id, err = _resolve_target(store, target)
+    if node_id is None:
+        return err if err is not None else {"error": "unresolved"}
+    upstream = impact(store, node_id, _exec_confidence(min_confidence))
+    dependents = [_brief(store, i) for i in upstream]
+    files = sorted({b["file"] for b in dependents if "file" in b})
+    return {"target": node_id, "dependents": dependents, "files": files}
+
+
+@mcp_app.tool(annotations=_READ_ONLY)
+async def forgeos_paths_to(
+    target: str,
+    max_depth: int = 6,
+    max_paths: int = 20,
+    min_confidence: str = "resolved",
+    project: str = ".",
+) -> dict[str, Any]:
+    """Call paths that reach a target symbol (e.g. every path that reaches a sink)."""
+    store = ExecGraphStore(open_store(Path(project)))
+    node_id, err = _resolve_target(store, target)
+    if node_id is None:
+        return err if err is not None else {"error": "unresolved"}
+    chains = paths_to(store, node_id, max_depth, max_paths, _exec_confidence(min_confidence))
+    return {"target": node_id, "paths": [[_brief(store, i) for i in chain] for chain in chains]}
 
 
 class MCPTransport:
