@@ -1,13 +1,13 @@
-"""Static state-access extraction + resolution measurement (E5A, ADR 0017).
+"""Static state-access extraction + typed resolution (E5A/E5B.1, ADR 0017/0018).
 
-Pure ast, deterministic. EMITS only ``self.<attr>`` READS/WRITES (Store=write, Load=read)
-— the receiver type (the enclosing class) is the one type known without inference. For
-**every** ``recv.attr`` access it also MEASURES how it would resolve under the conservative
-TypeEnv rules (self / parameter+local annotation / direct constructor binding), purely to
-count effectiveness — it does NOT emit annotation/constructor edges (that is E5B).
+Pure ast, deterministic. For ``self.<attr>`` it emits a READS/WRITES access directly (the
+receiver type is the enclosing class). For any other ``recv.attr`` it consults a conservative,
+flow-insensitive TypeEnv (parameter/local annotations + direct constructor bindings); when the
+receiver type is known it records a *typed* access (the engine resolves the type name to its
+defining file and emits the edge). Unknown receivers are counted, never edged.
 
-No SSA, no symbolic execution, no alias analysis, no dynamic dispatch, no inference beyond
-the TypeEnv. The env is flow-insensitive (conservative).
+No SSA, no symbolic execution, no alias analysis, no dynamic dispatch, no inference beyond the
+TypeEnv.
 """
 
 from __future__ import annotations
@@ -27,13 +27,24 @@ class _Access:
     edge: DfEdgeType
 
 
+@dataclass
+class _TypedAccess:
+    caller_id: str
+    type_name: str
+    attr: str
+    edge: DfEdgeType
+    source: str  # annotation | constructor
+
+
 class StateExtractor:
-    """Walk one file: emit self-attr edges and measure resolution effectiveness."""
+    """Walk one file: emit self-attr accesses, record typed accesses, measure resolution."""
 
     def __init__(self, file: str) -> None:
         self.file = file
         self.nodes: dict[str, StateSymbol] = {}
         self.accesses: list[_Access] = []
+        self.typed: list[_TypedAccess] = []
+        self.defined_classes: dict[str, str] = {}
         self.total_attr = 0
         self.resolved_self = 0
         self.resolved_annotation = 0
@@ -55,6 +66,7 @@ class StateExtractor:
             return
         if isinstance(node, ast.ClassDef):
             label = f"{prefix}{node.name}"
+            self.defined_classes[node.name] = self.file
             self._class_attrs(node, label)
             for stmt in node.body:
                 self._visit(stmt, caller_id, label, f"{label}.", {})
@@ -73,24 +85,27 @@ class StateExtractor:
         if not isinstance(value, ast.Name):
             self.unresolved += 1
             return
+        edge = DfEdgeType.WRITES if isinstance(node.ctx, ast.Store) else DfEdgeType.READS
         if value.id == "self" and cls is not None:
             self.resolved_self += 1
-            self._emit(node, caller_id, cls)
+            self._emit_self(node, caller_id, cls, edge)
             return
         binding = env.get(value.id)
         if binding is None:
             self.unresolved += 1
-        elif binding[1] == "constructor":
+            return
+        type_name, source = binding
+        self.typed.append(_TypedAccess(caller_id, type_name, node.attr, edge, source))
+        if source == "constructor":
             self.resolved_constructor += 1
         else:
             self.resolved_annotation += 1
 
-    def _emit(self, node: ast.Attribute, caller_id: str, cls: str) -> None:
+    def _emit_self(self, node: ast.Attribute, caller_id: str, cls: str, edge: DfEdgeType) -> None:
         state_id = f"state:{self.file}#{cls}.{node.attr}"
         self.nodes[state_id] = StateSymbol(
             id=state_id, kind="attr", label=f"{cls}.{node.attr}", file=self.file
         )
-        edge = DfEdgeType.WRITES if isinstance(node.ctx, ast.Store) else DfEdgeType.READS
         self.accesses.append(_Access(caller_id, state_id, edge))
 
     def _class_attrs(self, node: ast.ClassDef, label: str) -> None:
