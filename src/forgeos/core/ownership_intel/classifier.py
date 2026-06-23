@@ -95,8 +95,7 @@ def classify(store: ExecGraphStore, node_id: str, rules: list[OwnershipRule]) ->
     observed_owner, observed_conf, caller_domains = _observed(store, node_id, rules)
     agreement = (
         declared_owner == observed_owner
-        and declared_owner != UNKNOWN
-        and observed_owner != UNKNOWN
+        and UNKNOWN not in (declared_owner, observed_owner)
     )
     if caller_domains:
         boost = 0.1 if agreement else 0.0
