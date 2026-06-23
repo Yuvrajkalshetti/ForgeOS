@@ -3,7 +3,7 @@
 Thin transport adapter (ADR 0007): adapts MCP to the same services the CLI uses, no business
 logic. All tools are **read-only** (``readOnlyHint=True``) and need **no LLM provider** — the
 host (Claude) reasons. Knowledge tools wrap V1; execution/ownership/data-flow tools query the
-Intelligence graphs (ADR 0015/0016/0017).
+Intelligence graphs (ADR 0015/0016/0017/0018/0019).
 
 stdout carries only the MCP protocol; logging goes to stderr.
 """
@@ -26,6 +26,8 @@ from forgeos.config.loader import load_config
 from forgeos.core.advisory import AdvisoryContextBuilder
 from forgeos.core.dataflow_intel import DataFlowStore
 from forgeos.core.dataflow_intel import query as df_query
+from forgeos.core.dataflow_intel.anchors import load_anchors
+from forgeos.core.dataflow_intel.lineage import find_paths, forward_adjacency
 from forgeos.core.exec_intel import ExecGraphStore
 from forgeos.core.exec_intel.models import Confidence
 from forgeos.core.exec_intel.query import callees, callers, impact, paths_to, resolve
@@ -354,6 +356,59 @@ async def forgeos_flow_impact(symbol: str, project: str = ".") -> dict[str, Any]
     exec_store = ExecGraphStore(store)
     affected = df_query.flow_impact(df, exec_store, state_id)
     return {"symbol": state_id, "affected_symbols": [_brief(exec_store, i) for i in affected]}
+
+
+def _lineage_endpoint(
+    exec_store: ExecGraphStore, df: DataFlowStore, anchors: dict[str, str], token: str
+) -> str | None:
+    target = anchors.get(token, token)
+    exec_ids = resolve(exec_store, target)
+    if len(exec_ids) == 1:
+        return exec_ids[0]
+    state_ids = df_query.resolve(df, target)
+    if len(state_ids) == 1:
+        return state_ids[0]
+    return None
+
+
+def _lineage_brief(exec_store: ExecGraphStore, df: DataFlowStore, node_id: str) -> dict[str, Any]:
+    if node_id.startswith("state:"):
+        node = df.get_node(node_id)
+        label = node.label if node is not None else node_id
+        return {"id": node_id, "label": label, "kind": "state"}
+    return _brief(exec_store, node_id)
+
+
+@mcp_app.tool(annotations=_READ_ONLY)
+async def forgeos_lineage(
+    source: str,
+    target: str,
+    max_depth: int = 8,
+    max_paths: int = 10,
+    project: str = ".",
+) -> dict[str, Any]:
+    """Trace flow paths from source to target over CALLS + READS/WRITES.
+
+    Endpoints are anchor names (from .forgeos/dataflow.yaml), symbol ids, or labels
+    (a function qualname or a ``<Class>.<attr>`` state label).
+    """
+    store = open_store(Path(project))
+    exec_store = ExecGraphStore(store)
+    df = DataFlowStore(store)
+    anchors = load_anchors(Path(project))
+    src = _lineage_endpoint(exec_store, df, anchors, source)
+    dst = _lineage_endpoint(exec_store, df, anchors, target)
+    if src is None:
+        return {"error": f"source not found: {source}"}
+    if dst is None:
+        return {"error": f"target not found: {target}"}
+    adj = forward_adjacency(exec_store, df, Confidence.RESOLVED)
+    paths = find_paths(adj, src, dst, max_depth, max_paths)
+    return {
+        "source": src,
+        "target": dst,
+        "paths": [[_lineage_brief(exec_store, df, n) for n in path] for path in paths],
+    }
 
 
 class MCPTransport:
