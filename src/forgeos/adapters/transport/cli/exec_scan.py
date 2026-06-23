@@ -1,8 +1,8 @@
-"""``forge exec-scan`` — index Python symbols into the execution graph (E1, ADR 0015).
+"""``forge exec-scan`` — build the execution + data-flow graphs for a repo.
 
-Provider-free and additive: writes only to the sibling ``exec_nodes``/``exec_edges``
-collections, never the V1 ``nodes``/``edges`` graph. Python-first; other languages are
-skipped by the engine.
+Provider-free and additive: writes only to the sibling ``exec_*`` / ``df_*`` collections,
+never the V1 graph. Python-first; other languages are skipped. Output includes the E5A
+resolution statistics that gate E5B.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from pathlib import Path
 import typer
 
 from forgeos.adapters.transport.cli._shared import open_store
+from forgeos.core.dataflow_intel import DataFlowEngine, DataFlowStore
 from forgeos.core.exec_intel import ExecGraphStore, ExecIntelEngine
 
 
@@ -21,8 +22,10 @@ def exec_scan(
     path: Path = Path(),
     project: Path = Path(),
 ) -> None:
-    """Scan ``path`` for Python symbols; store them under ``project``/.forgeos."""
+    """Scan ``path`` for Python symbols/calls + state reads/writes; store under ``project``."""
     store = open_store(project)
-    engine = ExecIntelEngine(ExecGraphStore(store))
-    result = engine.scan(path)
-    typer.echo(json.dumps(dataclasses.asdict(result), indent=2))
+    exec_result = ExecIntelEngine(ExecGraphStore(store)).scan(path)
+    df_result = DataFlowEngine(DataFlowStore(store)).scan(path)
+    out = dataclasses.asdict(exec_result)
+    out["dataflow"] = dataclasses.asdict(df_result)
+    typer.echo(json.dumps(out, indent=2))
