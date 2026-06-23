@@ -68,18 +68,18 @@ def analyze_calls(
     def visit(node: ast.AST, caller_id: str, cls: str | None, prefix: str) -> None:
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             inner = f"{prefix}{node.name}"
-            for child in node.body:
-                visit(child, f"func:{file}#{inner}", cls, f"{inner}.")
+            for stmt in node.body:
+                visit(stmt, f"func:{file}#{inner}", cls, f"{inner}.")
             return
         if isinstance(node, ast.ClassDef):
             label = f"{prefix}{node.name}"
-            for child in node.body:
-                visit(child, file_id, label, f"{label}.")
+            for stmt in node.body:
+                visit(stmt, file_id, label, f"{label}.")
             return
         if isinstance(node, ast.Call):
             calls.append(_raw_call(node.func, caller_id, cls))
-        for child in ast.iter_child_nodes(node):
-            visit(child, caller_id, cls, prefix)
+        for sub in ast.iter_child_nodes(node):
+            visit(sub, caller_id, cls, prefix)
 
     visit(tree, file_id, None, "")
     return imports, calls
