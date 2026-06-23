@@ -29,7 +29,6 @@ from forgeos.adapters.transport.cli._shared import open_store
 from forgeos.catalog import Collections
 from forgeos.config.loader import load_config
 from forgeos.core.advisory import AdvisoryContextBuilder
-from forgeos.core.context_assembly.models import ContextBundle
 from forgeos.core.exec_intel import ExecGraphStore
 from forgeos.core.exec_intel.models import Confidence
 from forgeos.core.exec_intel.query import callees, callers, impact, paths_to, resolve
@@ -248,7 +247,8 @@ async def forgeos_impact_analysis(
     node_id, err = _resolve_target(store, target)
     if node_id is None:
         return err if err is not None else {"error": "unresolved"}
-    dependents = [_brief(store, i) for i in impact(store, node_id, _exec_confidence(min_confidence))]
+    upstream = impact(store, node_id, _exec_confidence(min_confidence))
+    dependents = [_brief(store, i) for i in upstream]
     files = sorted({b["file"] for b in dependents if "file" in b})
     return {"target": node_id, "dependents": dependents, "files": files}
 
