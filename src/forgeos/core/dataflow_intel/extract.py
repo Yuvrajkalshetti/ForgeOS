@@ -50,19 +50,19 @@ class StateExtractor:
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             qual = f"{prefix}{node.name}"
             fenv = self._build_env(node)
-            for child in node.body:
-                self._visit(child, f"func:{self.file}#{qual}", cls, f"{qual}.", fenv)
+            for stmt in node.body:
+                self._visit(stmt, f"func:{self.file}#{qual}", cls, f"{qual}.", fenv)
             return
         if isinstance(node, ast.ClassDef):
             label = f"{prefix}{node.name}"
             self._class_attrs(node, label)
-            for child in node.body:
-                self._visit(child, caller_id, label, f"{label}.", {})
+            for stmt in node.body:
+                self._visit(stmt, caller_id, label, f"{label}.", {})
             return
         if isinstance(node, ast.Attribute):
             self._classify(node, caller_id, cls, env)
-        for child in ast.iter_child_nodes(node):
-            self._visit(child, caller_id, cls, prefix, env)
+        for sub in ast.iter_child_nodes(node):
+            self._visit(sub, caller_id, cls, prefix, env)
 
     # -- measurement + emission ------------------------------------------------
     def _classify(
@@ -132,8 +132,8 @@ class StateExtractor:
                     env[target.id] = (ctor, "constructor")
                 else:
                     env.pop(target.id, None)
-        for child in ast.iter_child_nodes(node):
-            self._collect(child, env)
+        for sub in ast.iter_child_nodes(node):
+            self._collect(sub, env)
 
 
 def _anno_type(annotation: ast.expr | None) -> str | None:
