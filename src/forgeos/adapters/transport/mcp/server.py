@@ -1,17 +1,11 @@
 """ForgeOS MCP stdio transport (V2).
 
-Exposes existing ForgeOS services as MCP tools so a Claude host (Claude Code /
-Claude Desktop) can drive ForgeOS from chat. Per ADR 0007 this is a thin transport
-adapter: it adapts the MCP protocol to the same services the CLI uses and contains
-no business logic, which is what preserves CLI/MCP parity.
+Thin transport adapter (ADR 0007): adapts MCP to the same services the CLI uses, no business
+logic. All tools are **read-only** (``readOnlyHint=True``) and need **no LLM provider** — the
+host (Claude) reasons. Knowledge tools wrap V1; execution/ownership/data-flow tools query the
+Intelligence graphs (ADR 0015/0016/0017).
 
-All tools are **read-only** (``readOnlyHint=True``) and require **no LLM provider** —
-the host (Claude) is the reasoning model. Knowledge tools wrap V1 services;
-``forgeos_advisory_context`` returns Mentor's provider-free grounding (ADR 0014); the
-execution + ownership tools query the Execution/Ownership Intelligence graphs (ADR 0015/0016).
-
-stdout carries only the MCP protocol; logging is configured to stderr
-(:func:`forgeos.observability.configure_logging`), keeping the channel clean.
+stdout carries only the MCP protocol; logging goes to stderr.
 """
 
 from __future__ import annotations
@@ -30,6 +24,14 @@ from forgeos.adapters.transport.cli._shared import open_store
 from forgeos.catalog import Collections
 from forgeos.config.loader import load_config
 from forgeos.core.advisory import AdvisoryContextBuilder
+from forgeos.core.dataflow_intel import DataFlowStore
+from forgeos.core.dataflow_intel.query import (
+    data_flow as df_data_flow,
+    flow_impact as df_flow_impact,
+    readers as df_readers,
+    resolve as df_resolve,
+    writers as df_writers,
+)
 from forgeos.core.exec_intel import ExecGraphStore
 from forgeos.core.exec_intel.models import Confidence
 from forgeos.core.exec_intel.query import callees, callers, impact, paths_to, resolve
@@ -161,10 +163,9 @@ async def forgeos_advisory_context(
 ) -> dict[str, Any]:
     """Assemble Mentor's provider-free grounding bundle for a focus node or topic.
 
-    Returns the same deterministic ``ContextBundle`` that ``forge mentor`` would feed
-    to an LLM — cards, memory, ADRs, repo profile, decisions, findings — so the host
-    model (Claude Code) can do the reasoning itself. Read-only: built with no token
-    ledger, so nothing is persisted (ADR 0014).
+    Returns the deterministic ``ContextBundle`` ``forge mentor`` would feed an LLM — cards,
+    memory, ADRs, repo profile, decisions, findings — so the host model reasons itself.
+    Read-only: built with no token ledger, so nothing is persisted (ADR 0014).
     """
     root = Path(project)
     store = open_store(root)
@@ -274,11 +275,7 @@ async def forgeos_paths_to(
 
 @mcp_app.tool(annotations=_READ_ONLY)
 async def forgeos_runtime_owner(symbol: str, project: str = ".") -> dict[str, Any]:
-    """Declared + observed ownership of a symbol (domain/layer/criticality/impact).
-
-    declared_owner comes from rules; observed_owner from the call graph. Criticality and
-    impact are rule-declared governance metadata, never inferred (ADR 0016).
-    """
+    """Declared + observed ownership of a symbol (domain/layer/criticality/impact, ADR 0016)."""
     root = Path(project)
     store = ExecGraphStore(open_store(root))
     node_id, err = _resolve_target(store, symbol)
@@ -296,6 +293,71 @@ async def forgeos_runtime_summary(symbol: str, project: str = ".") -> dict[str, 
     if node_id is None:
         return err if err is not None else {"error": "unresolved"}
     return runtime_summary(store, node_id, load_rules(root))
+
+
+def _resolve_state(
+    df: DataFlowStore, symbol: str
+) -> tuple[str | None, dict[str, Any] | None]:
+    ids = df_resolve(df, symbol)
+    if not ids:
+        return None, {"error": f"state symbol not found: {symbol}"}
+    if len(ids) > 1:
+        return None, {"error": f"ambiguous state symbol: {symbol}", "candidates": ids[:25]}
+    return ids[0], None
+
+
+@mcp_app.tool(annotations=_READ_ONLY)
+async def forgeos_writers(symbol: str, project: str = ".") -> dict[str, Any]:
+    """Functions/methods that write a state symbol (``<Class>.<attr>``)."""
+    store = open_store(Path(project))
+    df = DataFlowStore(store)
+    state_id, err = _resolve_state(df, symbol)
+    if state_id is None:
+        return err if err is not None else {"error": "unresolved"}
+    exec_store = ExecGraphStore(store)
+    return {"symbol": state_id, "writers": [_brief(exec_store, w) for w in df_writers(df, state_id)]}
+
+
+@mcp_app.tool(annotations=_READ_ONLY)
+async def forgeos_readers(symbol: str, project: str = ".") -> dict[str, Any]:
+    """Functions/methods that read a state symbol (``<Class>.<attr>``)."""
+    store = open_store(Path(project))
+    df = DataFlowStore(store)
+    state_id, err = _resolve_state(df, symbol)
+    if state_id is None:
+        return err if err is not None else {"error": "unresolved"}
+    exec_store = ExecGraphStore(store)
+    return {"symbol": state_id, "readers": [_brief(exec_store, r) for r in df_readers(df, state_id)]}
+
+
+@mcp_app.tool(annotations=_READ_ONLY)
+async def forgeos_data_flow(symbol: str, project: str = ".") -> dict[str, Any]:
+    """Upstream (writers + their callers) and downstream (readers + their callers) of a state symbol."""
+    store = open_store(Path(project))
+    df = DataFlowStore(store)
+    state_id, err = _resolve_state(df, symbol)
+    if state_id is None:
+        return err if err is not None else {"error": "unresolved"}
+    exec_store = ExecGraphStore(store)
+    flow = df_data_flow(df, exec_store, state_id)
+    return {
+        "symbol": state_id,
+        "upstream": [_brief(exec_store, i) for i in flow["upstream"]],
+        "downstream": [_brief(exec_store, i) for i in flow["downstream"]],
+    }
+
+
+@mcp_app.tool(annotations=_READ_ONLY)
+async def forgeos_flow_impact(symbol: str, project: str = ".") -> dict[str, Any]:
+    """All symbols affected by a state symbol: readers/writers + their transitive callers."""
+    store = open_store(Path(project))
+    df = DataFlowStore(store)
+    state_id, err = _resolve_state(df, symbol)
+    if state_id is None:
+        return err if err is not None else {"error": "unresolved"}
+    exec_store = ExecGraphStore(store)
+    affected = df_flow_impact(df, exec_store, state_id)
+    return {"symbol": state_id, "affected_symbols": [_brief(exec_store, i) for i in affected]}
 
 
 class MCPTransport:
