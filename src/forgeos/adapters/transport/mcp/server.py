@@ -6,9 +6,9 @@ adapter: it adapts the MCP protocol to the same services the CLI uses and contai
 no business logic, which is what preserves CLI/MCP parity.
 
 All tools are **read-only** (``readOnlyHint=True``) and require **no LLM provider** —
-the host (Claude) is the reasoning model. ``forgeos_advisory_context`` returns Mentor's
-provider-free grounding bundle (ADR 0014); the ``forgeos_*`` execution tools query the
-Execution Intelligence call graph (ADR 0015), defaulting to ``min_confidence=resolved``.
+the host (Claude) is the reasoning model. Knowledge tools wrap V1 services;
+``forgeos_advisory_context`` returns Mentor's provider-free grounding (ADR 0014); the
+execution + ownership tools query the Execution/Ownership Intelligence graphs (ADR 0015/0016).
 
 stdout carries only the MCP protocol; logging is configured to stderr
 (:func:`forgeos.observability.configure_logging`), keeping the channel clean.
@@ -16,6 +16,7 @@ stdout carries only the MCP protocol; logging is configured to stderr
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import sys
 from pathlib import Path
@@ -34,6 +35,7 @@ from forgeos.core.exec_intel.models import Confidence
 from forgeos.core.exec_intel.query import callees, callers, impact, paths_to, resolve
 from forgeos.core.graph import GraphStore, NodeType
 from forgeos.core.memory import MemoryKind, MemoryScope, MemoryService
+from forgeos.core.ownership_intel import classify, load_rules, runtime_summary
 from forgeos.observability import configure_logging, new_request_id
 
 _FORGEOS_DIR = ".forgeos"
@@ -268,6 +270,32 @@ async def forgeos_paths_to(
         return err if err is not None else {"error": "unresolved"}
     chains = paths_to(store, node_id, max_depth, max_paths, _exec_confidence(min_confidence))
     return {"target": node_id, "paths": [[_brief(store, i) for i in chain] for chain in chains]}
+
+
+@mcp_app.tool(annotations=_READ_ONLY)
+async def forgeos_runtime_owner(symbol: str, project: str = ".") -> dict[str, Any]:
+    """Declared + observed ownership of a symbol (domain/layer/criticality/impact).
+
+    declared_owner comes from rules; observed_owner from the call graph. Criticality and
+    impact are rule-declared governance metadata, never inferred (ADR 0016).
+    """
+    root = Path(project)
+    store = ExecGraphStore(open_store(root))
+    node_id, err = _resolve_target(store, symbol)
+    if node_id is None:
+        return err if err is not None else {"error": "unresolved"}
+    return dataclasses.asdict(classify(store, node_id, load_rules(root)))
+
+
+@mcp_app.tool(annotations=_READ_ONLY)
+async def forgeos_runtime_summary(symbol: str, project: str = ".") -> dict[str, Any]:
+    """Ownership + consumers + dependencies + governance labels for a symbol."""
+    root = Path(project)
+    store = ExecGraphStore(open_store(root))
+    node_id, err = _resolve_target(store, symbol)
+    if node_id is None:
+        return err if err is not None else {"error": "unresolved"}
+    return runtime_summary(store, node_id, load_rules(root))
 
 
 class MCPTransport:
