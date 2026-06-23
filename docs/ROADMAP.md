@@ -1,6 +1,6 @@
 # ForgeOS — Roadmap & Status
 
-_Last updated: 2026-06-22_
+_Last updated: 2026-06-23_
 
 An honest snapshot of what's shipped, in progress, and deferred. The decisions behind each
 item live in `docs/adr/`.
@@ -26,9 +26,9 @@ All components are built and unit-tested:
 > **not exercised by the Claude Code / MCP workflow**, which requires no provider — so this
 > only matters for the provider-backed `forge mentor` / `audit` CLI commands.
 
-## V2 — in progress
+## V2 — MCP (shipped)
 
-- ✅ **MCP Integration — Phase 1 shipped.** Seven **read-only** stdio tools: `forgeos_status`,
+- ✅ **MCP Integration — Phase 1.** Seven **read-only** stdio tools: `forgeos_status`,
   `forgeos_doctor`, `forgeos_skill_list`, `forgeos_skill_show`, `forgeos_graph_summary`,
   `forgeos_memory_summary`, `forgeos_advisory_context`. No provider required — the host model
   (Claude) does the reasoning (ADR 0007, 0013, 0014). CI-verified and tested live in Claude Code.
@@ -40,14 +40,15 @@ All components are built and unit-tested:
 > `forgeos_advisory_context` (read-only grounding; the host model reasons) — see ADR 0014.
 > The provider-backed `forge mentor` CLI command is unchanged.
 
-## V2 — Execution Intelligence (architecture approved; implementation not started)
+## V2 — Execution Intelligence (in progress)
 
-Design accepted in **ADR 0015**; phased plan in `docs/PLAN-V2-execution-intelligence.md`.
-Python-first, deterministic/offline/provider-free, built on the existing graph via a new
-isolated engine + new collections. **No code written yet.**
+Design in **ADR 0015**; phased plan in `docs/PLAN-V2-execution-intelligence.md`. Python-first,
+deterministic/offline/provider-free, built on the existing graph via a new isolated engine
+(`core/exec_intel`) + sibling collections.
 
-- 🔄 **E1** — Python symbol graph (`Function`/`Method`/`Class` + `DEFINES`/`OVERRIDES`/`EXTENDS`)
-- 🔄 **E2** — Python call graph (`CALLS`, confidence-tagged)
+- ✅ **E1** — Python symbol graph: `Function`/`Method`/`Class` nodes + `DEFINES` edges +
+  name-matched `EXTENDS` (confidence=heuristic). Run it with **`forge exec-scan`**. (`OVERRIDES` → E2.)
+- 🔄 **E2** — Python call graph (`CALLS`, confidence-tagged) via an import-binding resolver
 - 🔄 **E3** — impact & path queries + read-only MCP tools (`who_calls`, `call_graph`, `impact_analysis`, `paths_to`)
 - 🔄 **E4** — state & ownership (`READS`/`WRITES`, derived + declared `OWNS`)
 - 🔄 **E5** — structural data flow (anchored)

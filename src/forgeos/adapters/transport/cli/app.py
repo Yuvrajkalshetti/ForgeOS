@@ -18,6 +18,7 @@ from forgeos.adapters.transport.cli.audit import audit as audit_command
 from forgeos.adapters.transport.cli.compress import compress_app
 from forgeos.adapters.transport.cli.context import context_app
 from forgeos.adapters.transport.cli.doctor import doctor_cmd
+from forgeos.adapters.transport.cli.exec_scan import exec_scan
 from forgeos.adapters.transport.cli.graph import graph_app
 from forgeos.adapters.transport.cli.learn import learn_app
 from forgeos.adapters.transport.cli.memory import memory_app
@@ -56,6 +57,7 @@ app.add_typer(agent_app, name="agent")
 app.add_typer(learn_app, name="learn")
 app.add_typer(skill_app, name="skill")
 app.command(name="scan")(scan_command)
+app.command(name="exec-scan")(exec_scan)
 app.command(name="mentor")(mentor_command)
 app.command(name="audit")(audit_command)
 app.command(name="export")(export_cmd)
