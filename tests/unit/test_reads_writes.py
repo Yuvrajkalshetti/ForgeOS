@@ -54,7 +54,7 @@ def test_constructor_resolved_counted(tmp_path: Path) -> None:
 
 def test_unresolved_counted(tmp_path: Path) -> None:
     _store, result = _scan(tmp_path, "def f(x):\n    return x.value\n")
-    assert result.unresolved >= 1
+    assert result.unresolved_accesses >= 1
     assert 0.0 <= result.resolution_rate <= 1.0
 
 
