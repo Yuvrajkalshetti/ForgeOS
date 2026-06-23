@@ -24,7 +24,8 @@ from forgeos.adapters.transport.cli._shared import open_store
 from forgeos.catalog import Collections
 from forgeos.config.loader import load_config
 from forgeos.core.advisory import AdvisoryContextBuilder
-from forgeos.core.dataflow_intel import DataFlowStore, query as df_query
+from forgeos.core.dataflow_intel import DataFlowStore
+from forgeos.core.dataflow_intel import query as df_query
 from forgeos.core.exec_intel import ExecGraphStore
 from forgeos.core.exec_intel.models import Confidence
 from forgeos.core.exec_intel.query import callees, callers, impact, paths_to, resolve
