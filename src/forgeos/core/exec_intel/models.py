@@ -29,6 +29,7 @@ class ExecNodeType(str, Enum):
 class ExecEdgeType(str, Enum):
     DEFINES = "defines"
     EXTENDS = "extends"
+    CALLS = "calls"
 
 
 class Confidence(str, Enum):
@@ -73,3 +74,5 @@ class ExecScanResult:
     classes: int = 0
     defines_edges: int = 0
     extends_edges: int = 0
+    calls_edges: int = 0
+    unresolved_calls: int = 0
