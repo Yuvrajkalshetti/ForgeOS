@@ -26,14 +26,14 @@ def forward_adjacency(
     """Forward graph: CALLS (caller->callee), WRITES (func->state), READS (state->func)."""
     adj: dict[str, list[str]] = {}
     floor = _RANK[min_conf]
-    for edge in exec_store.edges():
-        if edge.type is ExecEdgeType.CALLS and _RANK[edge.confidence] >= floor:
-            adj.setdefault(edge.src_id, []).append(edge.dst_id)
-    for edge in df_store.edges():
-        if edge.type is DfEdgeType.WRITES:
-            adj.setdefault(edge.src_id, []).append(edge.dst_id)
-        elif edge.type is DfEdgeType.READS:
-            adj.setdefault(edge.dst_id, []).append(edge.src_id)
+    for call_edge in exec_store.edges():
+        if call_edge.type is ExecEdgeType.CALLS and _RANK[call_edge.confidence] >= floor:
+            adj.setdefault(call_edge.src_id, []).append(call_edge.dst_id)
+    for data_edge in df_store.edges():
+        if data_edge.type is DfEdgeType.WRITES:
+            adj.setdefault(data_edge.src_id, []).append(data_edge.dst_id)
+        elif data_edge.type is DfEdgeType.READS:
+            adj.setdefault(data_edge.dst_id, []).append(data_edge.src_id)
     return {key: sorted(set(values)) for key, values in adj.items()}
 
 
