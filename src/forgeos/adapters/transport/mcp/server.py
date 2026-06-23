@@ -24,14 +24,7 @@ from forgeos.adapters.transport.cli._shared import open_store
 from forgeos.catalog import Collections
 from forgeos.config.loader import load_config
 from forgeos.core.advisory import AdvisoryContextBuilder
-from forgeos.core.dataflow_intel import DataFlowStore
-from forgeos.core.dataflow_intel.query import (
-    data_flow as df_data_flow,
-    flow_impact as df_flow_impact,
-    readers as df_readers,
-    resolve as df_resolve,
-    writers as df_writers,
-)
+from forgeos.core.dataflow_intel import DataFlowStore, query as df_query
 from forgeos.core.exec_intel import ExecGraphStore
 from forgeos.core.exec_intel.models import Confidence
 from forgeos.core.exec_intel.query import callees, callers, impact, paths_to, resolve
@@ -298,7 +291,7 @@ async def forgeos_runtime_summary(symbol: str, project: str = ".") -> dict[str, 
 def _resolve_state(
     df: DataFlowStore, symbol: str
 ) -> tuple[str | None, dict[str, Any] | None]:
-    ids = df_resolve(df, symbol)
+    ids = df_query.resolve(df, symbol)
     if not ids:
         return None, {"error": f"state symbol not found: {symbol}"}
     if len(ids) > 1:
@@ -315,7 +308,7 @@ async def forgeos_writers(symbol: str, project: str = ".") -> dict[str, Any]:
     if state_id is None:
         return err if err is not None else {"error": "unresolved"}
     exec_store = ExecGraphStore(store)
-    found = [_brief(exec_store, w) for w in df_writers(df, state_id)]
+    found = [_brief(exec_store, w) for w in df_query.writers(df, state_id)]
     return {"symbol": state_id, "writers": found}
 
 
@@ -328,7 +321,7 @@ async def forgeos_readers(symbol: str, project: str = ".") -> dict[str, Any]:
     if state_id is None:
         return err if err is not None else {"error": "unresolved"}
     exec_store = ExecGraphStore(store)
-    found = [_brief(exec_store, r) for r in df_readers(df, state_id)]
+    found = [_brief(exec_store, r) for r in df_query.readers(df, state_id)]
     return {"symbol": state_id, "readers": found}
 
 
@@ -341,7 +334,7 @@ async def forgeos_data_flow(symbol: str, project: str = ".") -> dict[str, Any]:
     if state_id is None:
         return err if err is not None else {"error": "unresolved"}
     exec_store = ExecGraphStore(store)
-    flow = df_data_flow(df, exec_store, state_id)
+    flow = df_query.data_flow(df, exec_store, state_id)
     return {
         "symbol": state_id,
         "upstream": [_brief(exec_store, i) for i in flow["upstream"]],
@@ -358,7 +351,7 @@ async def forgeos_flow_impact(symbol: str, project: str = ".") -> dict[str, Any]
     if state_id is None:
         return err if err is not None else {"error": "unresolved"}
     exec_store = ExecGraphStore(store)
-    affected = df_flow_impact(df, exec_store, state_id)
+    affected = df_query.flow_impact(df, exec_store, state_id)
     return {"symbol": state_id, "affected_symbols": [_brief(exec_store, i) for i in affected]}
 
 
