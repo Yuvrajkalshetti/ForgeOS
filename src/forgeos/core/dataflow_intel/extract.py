@@ -44,7 +44,9 @@ class StateExtractor:
         self._visit(tree, f"file:{self.file}", None, "", {})
 
     # -- traversal -------------------------------------------------------------
-    def _visit(self, node: ast.AST, caller_id: str, cls: str | None, prefix: str, env: _Env) -> None:
+    def _visit(
+        self, node: ast.AST, caller_id: str, cls: str | None, prefix: str, env: _Env
+    ) -> None:
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             qual = f"{prefix}{node.name}"
             fenv = self._build_env(node)
@@ -63,7 +65,9 @@ class StateExtractor:
             self._visit(child, caller_id, cls, prefix, env)
 
     # -- measurement + emission ------------------------------------------------
-    def _classify(self, node: ast.Attribute, caller_id: str, cls: str | None, env: _Env) -> None:
+    def _classify(
+        self, node: ast.Attribute, caller_id: str, cls: str | None, env: _Env
+    ) -> None:
         self.total_attr += 1
         value = node.value
         if not isinstance(value, ast.Name):

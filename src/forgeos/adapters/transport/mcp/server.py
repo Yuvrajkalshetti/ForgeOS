@@ -315,7 +315,8 @@ async def forgeos_writers(symbol: str, project: str = ".") -> dict[str, Any]:
     if state_id is None:
         return err if err is not None else {"error": "unresolved"}
     exec_store = ExecGraphStore(store)
-    return {"symbol": state_id, "writers": [_brief(exec_store, w) for w in df_writers(df, state_id)]}
+    found = [_brief(exec_store, w) for w in df_writers(df, state_id)]
+    return {"symbol": state_id, "writers": found}
 
 
 @mcp_app.tool(annotations=_READ_ONLY)
@@ -327,12 +328,13 @@ async def forgeos_readers(symbol: str, project: str = ".") -> dict[str, Any]:
     if state_id is None:
         return err if err is not None else {"error": "unresolved"}
     exec_store = ExecGraphStore(store)
-    return {"symbol": state_id, "readers": [_brief(exec_store, r) for r in df_readers(df, state_id)]}
+    found = [_brief(exec_store, r) for r in df_readers(df, state_id)]
+    return {"symbol": state_id, "readers": found}
 
 
 @mcp_app.tool(annotations=_READ_ONLY)
 async def forgeos_data_flow(symbol: str, project: str = ".") -> dict[str, Any]:
-    """Upstream (writers + their callers) and downstream (readers + their callers) of a state symbol."""
+    """Upstream/downstream of a state symbol (writers/readers + their callers)."""
     store = open_store(Path(project))
     df = DataFlowStore(store)
     state_id, err = _resolve_state(df, symbol)
