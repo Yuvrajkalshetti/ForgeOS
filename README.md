@@ -66,14 +66,14 @@ all-zero counts is normal, not a bug.) In any project:
 ```bash
 cd /path/to/your/project
 forgeos init                     # create .forgeos/ (idempotent, non-destructive)
-forgeos scan                     # index files/modules/deps into the knowledge graph
-forgeos compress run --bulk      # build compact “cards” (cheap summaries of code)
+forgeos sync                     # scan + compress + exec-scan in one step (provider-free)
 forgeos memory add "We use uv + hatchling; mypy strict on src/"   # remember a fact
-forgeos exec-scan                # build the code-intelligence graphs (symbols/calls/state)
 forgeos status                   # counts should now be non-zero
 ```
 
-Query what it now knows:
+`forgeos sync` is the one-shot seeder/refresher. (The individual steps — `forgeos scan`,
+`forgeos compress run --bulk`, `forgeos exec-scan` — still exist if you want to run them
+separately.) Query what it now knows:
 
 ```bash
 forgeos memory query                  # list stored memory (filter with --scope / --kind)
@@ -104,7 +104,7 @@ the reasoning model.
 | `forgeos_memory_summary` | stored memory records (optionally filtered) |
 | `forgeos_advisory_context` | deterministic, provider-free **grounding bundle** for the host model to reason over |
 
-**Execution Intelligence (4)** — the call graph (needs `forgeos exec-scan` first):
+**Execution Intelligence (4)** — the call graph (needs `forgeos sync`/`exec-scan` first):
 
 | Tool | Answers |
 |------|---------|
@@ -129,9 +129,8 @@ the reasoning model.
 | `forgeos_flow_impact` | everything a state symbol affects |
 | `forgeos_lineage` | trace a path between two endpoints (e.g. Signal → Execution) |
 
-> The Execution / Ownership / Data-Flow tools require **`forgeos exec-scan`** to have run in the
-> project (it builds the graphs). They're **Python-only** and deterministic — see *Code
-> Intelligence* below.
+> The Execution / Ownership / Data-Flow tools require **`forgeos sync`** (or `exec-scan`) to have
+> run in the project. They're **Python-only** and deterministic — see *Code Intelligence* below.
 
 ### Set it up (one time)
 
@@ -183,15 +182,24 @@ graphs. It is **deterministic, offline, and provider-free** — no LLM, no type 
 declared annotations, no runtime tracing. Relationships it can't prove statically are counted,
 never fabricated.
 
-Build (or refresh) the graphs:
+Build (or refresh) everything in one step:
 
 ```bash
 cd /path/to/your/project
-forgeos exec-scan                # symbols + call graph + state reads/writes; prints stats
+forgeos sync                # scan + compress + exec-scan + dataflow; prints a summary
 ```
 
-Then the MCP tools above answer call-graph, ownership, and data-flow questions. Two optional
-project config files sharpen the answers:
+**Keep it fresh.** The graphs reflect your **last sync** — re-run `forgeos sync` after notable
+changes. To automate, install the sample git hook (refreshes after pulls/checkouts; no-ops if
+forgeos isn't set up, never blocks the git op):
+
+```bash
+chmod +x scripts/forgeos-sync-hook.sh
+ln -sf ../../scripts/forgeos-sync-hook.sh .git/hooks/post-merge
+ln -sf ../../scripts/forgeos-sync-hook.sh .git/hooks/post-checkout
+```
+
+Two optional project config files sharpen the answers:
 
 - **`.forgeos/ownership.yaml`** — maps code to domains/layers/criticality (governance metadata;
   declared, never inferred). Example:
@@ -222,9 +230,9 @@ project config files sharpen the answers:
 
 Three habits make ForgeOS pay off — its value compounds as you feed it:
 
-1. **Feed** (periodic, CLI): re-`scan` and `exec-scan` after notable changes; record decisions.
+1. **Feed** (periodic, CLI): re-`sync` after notable changes; record decisions as you go.
    ```bash
-   forgeos scan && forgeos exec-scan
+   forgeos sync
    forgeos memory add "Risk checks run before every place_order" --kind observation
    ```
 2. **Use** (daily, in Claude): start a session in the project, then ask
@@ -248,16 +256,17 @@ forgeos doctor               # environment + config diagnostics
 forgeos status               # workspace state at a glance
 forgeos wizard               # guided first-run walkthrough
 
-# build + query knowledge
-forgeos scan                 # index the current dir (or: scan --path <dir>)
+# build knowledge + code intelligence
+forgeos sync                 # one-shot: scan + compress + exec-scan + dataflow (or: --path <dir>)
+forgeos scan                 # index the current dir into the knowledge graph (or: --path <dir>)
 forgeos compress run --bulk  # build context cards
+forgeos exec-scan            # build symbol/call/state graphs (Python; deterministic)
+
+# query knowledge
 forgeos memory add "<text>"  # store a memory (--scope, --kind, --ttl)
 forgeos memory query         # list memory (filter with --scope / --kind)
 forgeos graph query <node-id-or-label>   # `graph why <id>` explains an edge
 forgeos context build <target>           # assemble a token-budgeted context bundle
-
-# code intelligence (Python; deterministic, provider-free)
-forgeos exec-scan            # build symbol/call/state graphs (or: exec-scan --path <dir>)
 
 # advisory (provider-backed CLI; MCP uses host reasoning instead)
 forgeos mentor "<question>"   # advisory guidance (read-only; never executes)
@@ -295,6 +304,7 @@ src/forgeos/
                   exec_intel (symbols/calls), ownership_intel, dataflow_intel
   testing/        in-memory fakes + static guards for tests
 docs/             architecture, implementation plan, ADRs, ROADMAP
+scripts/          stdlib check + sample git hooks
 tests/            unit tests + golden repository corpus
 ```
 
@@ -319,19 +329,19 @@ provides a stdlib-only substitute (syntax + annotation + import-hygiene checks).
 ## Troubleshooting
 
 - **All counts are `0` / knowledge MCP tools return nothing** — the store is empty. Run
-  `forgeos scan` and add a memory or two first (see *First 5 minutes*).
-- **Execution / ownership / data-flow tools return nothing** — run **`forgeos exec-scan`** in the
-  project first; those graphs are separate from the knowledge graph.
+  `forgeos sync` and add a memory or two first (see *First 5 minutes*).
+- **Execution / ownership / data-flow tools return nothing** — run **`forgeos sync`** (or
+  `exec-scan`) in the project first; those graphs are separate from the knowledge graph.
 - **`OperationalError: database is locked`** — another process holds the project's
   `.forgeos/cache/forge.sqlite` (usually a live Claude session whose `forgeos-mcp` server has it
-  open). Don't run `exec-scan` while an MCP session is using the same project. Free it:
+  open). Don't run `sync`/`exec-scan` while an MCP session is using the same project. Free it:
   `pkill -f forgeos-mcp` (Claude respawns it on next use), then re-run. If a crashed run left a
   journal: `rm -f .forgeos/cache/forge.sqlite-journal .forgeos/cache/forge.sqlite-wal` (the index
   is rebuildable from snapshots).
 - **`/mcp` shows fewer than 18 tools** — you're on an older build; `uv tool install ".[mcp]"`
   again and start a fresh session.
-- **`scan .` errors with “unexpected extra argument”** — `scan`/`exec-scan` take no positional
-  path; use the bare command (current dir) or `--path <dir>`.
+- **`scan .` errors with “unexpected extra argument”** — `scan`/`exec-scan`/`sync` take no
+  positional path; use the bare command (current dir) or `--path <dir>`.
 - **`doctor` shows `credentials: FAIL`** — only affects the provider-backed `forge mentor`/`audit`
   CLI. Every MCP tool works without it. To clear it: `forgeos provider use ollama` (no key), or
   ignore it. The `provider` field is the CLI's external-model setting; **MCP never uses it.**
