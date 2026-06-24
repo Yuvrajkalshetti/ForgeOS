@@ -2,18 +2,20 @@
 
 A **local-first AI Operating System** that sits between you, your projects, and AI models.
 It **preserves project knowledge while sending fewer tokens** — giving your AI assistant a
-persistent memory, a knowledge graph of your codebase, compact context “cards,” and an
-explainable, human-gated learning loop.
+persistent memory, a knowledge graph of your codebase, deterministic **code intelligence**
+(call graph, ownership, data flow), compact context “cards,” and an explainable, human-gated
+learning loop.
 
 Use it two ways, together or separately:
 
 - **CLI** (`forgeos` / `forge`) — build and query the knowledge directly in your terminal.
-- **Inside Claude (MCP)** — Claude Code / Claude Desktop call ForgeOS as tools, so the
-  assistant reasons with *your* accumulated project knowledge. **No API key or extra model
-  required** — your Claude host is the model.
+- **Inside Claude (MCP)** — Claude Code / Claude Desktop call ForgeOS as **18 read-only tools**,
+  so the assistant reasons with *your* accumulated project knowledge. **No API key or extra
+  model required** — your Claude host is the model.
 
-> Status: **V1.0.0**, CLI-first. Current status & roadmap: `docs/ROADMAP.md`. Architecture in
-> `docs/ARCHITECTURE.md`; design decisions in `docs/adr/`; per-release changes in `CHANGELOG.md`.
+> Status: **V1.0.0** (CLI-first) + **V2** MCP & Code Intelligence (Execution / Ownership /
+> Data Flow). Current status & roadmap: `docs/ROADMAP.md`; architecture in `docs/ARCHITECTURE.md`;
+> decisions in `docs/adr/`; changes in `CHANGELOG.md`.
 
 ---
 
@@ -25,7 +27,7 @@ Use it two ways, together or separately:
 - macOS, Linux, or Windows
 - **No AI provider or API key** is needed for the CLI's core commands or for any of the
   Claude (MCP) tools. A provider (Claude API **or** a local [Ollama](https://ollama.com)) is
-  only required for the provider-backed `forge mentor` CLI command — never for the MCP tools.
+  only required for the provider-backed `forge mentor` / `audit` CLI commands — never for MCP.
 
 ---
 
@@ -64,9 +66,10 @@ all-zero counts is normal, not a bug.) In any project:
 ```bash
 cd /path/to/your/project
 forgeos init                     # create .forgeos/ (idempotent, non-destructive)
-forgeos scan                     # index the current dir (files/modules/deps) into the graph
+forgeos scan                     # index files/modules/deps into the knowledge graph
 forgeos compress run --bulk      # build compact “cards” (cheap summaries of code)
 forgeos memory add "We use uv + hatchling; mypy strict on src/"   # remember a fact
+forgeos exec-scan                # build the code-intelligence graphs (symbols/calls/state)
 forgeos status                   # counts should now be non-zero
 ```
 
@@ -87,17 +90,48 @@ Claude Desktop — can call ForgeOS as tools mid-conversation. It's a thin trans
 same services as the CLI (ADR 0007); the `mcp` dependency is optional and the `forge`/`forgeos`
 CLI never imports it.
 
-**All seven tools are read-only and need no LLM provider** — in the MCP model your Claude host
-is the reasoning model (ADR 0014):
+**All 18 tools are read-only and need no LLM provider** — in the MCP model your Claude host is
+the reasoning model.
 
-| Tool | What it returns |
-|------|-----------------|
+**Knowledge (7)** — wrap V1 services:
+
+| Tool | Returns |
+|------|---------|
 | `forgeos_status` | project state + record counts + active provider |
 | `forgeos_doctor` | environment / readiness diagnostics |
 | `forgeos_skill_list` / `forgeos_skill_show` | promoted skills |
 | `forgeos_graph_summary` | nodes reachable from a target in the knowledge graph |
 | `forgeos_memory_summary` | stored memory records (optionally filtered) |
-| `forgeos_advisory_context` | a deterministic, provider-free **grounding bundle** (cards, memory, ADRs, repo profile, decisions, findings) for the host model to reason over |
+| `forgeos_advisory_context` | deterministic, provider-free **grounding bundle** for the host model to reason over |
+
+**Execution Intelligence (4)** — the call graph (needs `forgeos exec-scan` first):
+
+| Tool | Answers |
+|------|---------|
+| `forgeos_symbol` | find a function/method/class by name |
+| `forgeos_call_graph` | callers or callees of a symbol |
+| `forgeos_impact_analysis` | “what breaks if I change X?” (transitive callers + files) |
+| `forgeos_paths_to` | “every path that reaches a sink” (e.g. a live-order call) |
+
+**Ownership Intelligence (2)** — declared (rules) + observed (call graph):
+
+| Tool | Answers |
+|------|---------|
+| `forgeos_runtime_owner` | domain / layer / criticality / impact + declared-vs-observed drift |
+| `forgeos_runtime_summary` | ownership + consumers + dependencies |
+
+**Data Flow Intelligence (5)** — state reads/writes + lineage:
+
+| Tool | Answers |
+|------|---------|
+| `forgeos_readers` / `forgeos_writers` | who reads / writes a `<Class>.<attr>` |
+| `forgeos_data_flow` | upstream (writers + callers) / downstream (readers + callers) |
+| `forgeos_flow_impact` | everything a state symbol affects |
+| `forgeos_lineage` | trace a path between two endpoints (e.g. Signal → Execution) |
+
+> The Execution / Ownership / Data-Flow tools require **`forgeos exec-scan`** to have run in the
+> project (it builds the graphs). They're **Python-only** and deterministic — see *Code
+> Intelligence* below.
 
 ### Set it up (one time)
 
@@ -117,7 +151,7 @@ Then work from the project directory so tools default to `project="."`:
 
 ```bash
 cd /path/to/your/project && claude
-# inside the session:  /mcp        # confirms forgeos is connected (7 tools)
+# inside the session:  /mcp        # confirms forgeos is connected (18 tools)
 ```
 
 > If your `claude` command is a profile wrapper (e.g. it tells you to use `claude-personal`
@@ -134,11 +168,53 @@ Then just ask, in plain language:
 
 > “Using forgeos, show status and run doctor.”
 >
-> “Using forgeos, get the advisory context for the memory module, then propose how to add a TTL cleanup.”
+> “Using forgeos, who calls `ExecutionService.place_order`, and show every path that reaches it.”
 >
-> “Using forgeos, what do we know about how this project handles config?”
+> “Using forgeos, who owns `strike_state`, and what breaks if I change it?”
 
-If you started Claude outside the project, name the path: *“run forgeos_status for project /path/to/project”*.
+If you started Claude outside the project, name the path: *“… for project /path/to/project”*.
+
+---
+
+## Code Intelligence (Execution / Ownership / Data Flow)
+
+Beyond the knowledge graph, ForgeOS statically analyzes your **Python** code into queryable
+graphs. It is **deterministic, offline, and provider-free** — no LLM, no type inference beyond
+declared annotations, no runtime tracing. Relationships it can't prove statically are counted,
+never fabricated.
+
+Build (or refresh) the graphs:
+
+```bash
+cd /path/to/your/project
+forgeos exec-scan                # symbols + call graph + state reads/writes; prints stats
+```
+
+Then the MCP tools above answer call-graph, ownership, and data-flow questions. Two optional
+project config files sharpen the answers:
+
+- **`.forgeos/ownership.yaml`** — maps code to domains/layers/criticality (governance metadata;
+  declared, never inferred). Example:
+  ```yaml
+  rules:
+    - match: { name: "^ExecutionService" }
+      domain: Execution Domain
+      criticality: P0
+      impact: LIVE_TRADING
+    - match: { path: "*/strategy/*" }
+      domain: Strategy Domain
+  ```
+- **`.forgeos/dataflow.yaml`** — maps domain concepts to symbols so `forgeos_lineage` can trace
+  named flows. Example:
+  ```yaml
+  anchors:
+    Signal: StrategyRunner.evaluate
+    Execution: ExecutionService.place_order
+  ```
+
+> **Scope:** Python only. TypeScript/JavaScript, dynamic dispatch, and runtime tracing are out
+> of scope — cross-language flows (e.g. into a Next.js UI) are not covered. Coverage of
+> cross-object data flow scales with how **type-annotated** the code is.
 
 ---
 
@@ -146,25 +222,20 @@ If you started Claude outside the project, name the path: *“run forgeos_status
 
 Three habits make ForgeOS pay off — its value compounds as you feed it:
 
-1. **Feed** (periodic, CLI): re-`scan` after notable changes; record decisions/gotchas as you go.
+1. **Feed** (periodic, CLI): re-`scan` and `exec-scan` after notable changes; record decisions.
    ```bash
-   forgeos scan
-   forgeos memory add "Tokens cached in keychain; switch gh accounts with `gh auth switch`"
-   forgeos memory add "MCP tools must return data, never print to stdout" --kind observation
+   forgeos scan && forgeos exec-scan
+   forgeos memory add "Risk checks run before every place_order" --kind observation
    ```
 2. **Use** (daily, in Claude): start a session in the project, then ask
-   *“using forgeos, get advisory context for X…”*, *“what do we know about Y?”*, *“show status”*.
-   Claude grounds its answers in your stored knowledge instead of re-asking you each session.
+   *“using forgeos, who calls X / what owns Y / how does Z flow / what do we know about W”*.
+   Claude grounds its answers in your graphs instead of re-deriving from source each time.
 3. **Promote** (periodic, CLI): turn durable lessons into skills via the human-gated loop.
    ```bash
    forgeos learn review                       # proposals awaiting a decision (nothing auto-promotes)
    forgeos learn approve <id> --actor you
    forgeos learn commit  <id> --actor you     # approved learning -> a Skill node
    ```
-
-**Why it helps:** persistent memory across Claude sessions (stop re-explaining your project),
-grounded answers that match your codebase, and fewer tokens (cards are compact summaries, so
-grounding costs less than pasting raw files).
 
 ---
 
@@ -184,6 +255,9 @@ forgeos memory add "<text>"  # store a memory (--scope, --kind, --ttl)
 forgeos memory query         # list memory (filter with --scope / --kind)
 forgeos graph query <node-id-or-label>   # `graph why <id>` explains an edge
 forgeos context build <target>           # assemble a token-budgeted context bundle
+
+# code intelligence (Python; deterministic, provider-free)
+forgeos exec-scan            # build symbol/call/state graphs (or: exec-scan --path <dir>)
 
 # advisory (provider-backed CLI; MCP uses host reasoning instead)
 forgeos mentor "<question>"   # advisory guidance (read-only; never executes)
@@ -217,7 +291,8 @@ src/forgeos/
   observability/  structured logging with request correlation
   ports/          abstract interfaces (storage, provider, transport, tokenizer, vector)
   adapters/       concrete implementations (transport/cli, transport/mcp, storage, providers, ...)
-  core/           memory, graph, repo-intel, compression, context assembly, advisory, learning
+  core/           memory, graph, repo-intel, compression, context assembly, advisory, learning,
+                  exec_intel (symbols/calls), ownership_intel, dataflow_intel
   testing/        in-memory fakes + static guards for tests
 docs/             architecture, implementation plan, ADRs, ROADMAP
 tests/            unit tests + golden repository corpus
@@ -243,21 +318,25 @@ provides a stdlib-only substitute (syntax + annotation + import-hygiene checks).
 
 ## Troubleshooting
 
-- **All counts are `0` / MCP tools return nothing** — the store is empty. Run `forgeos scan`
-  and add a memory or two first (see *First 5 minutes*).
-- **`scan .` errors with “unexpected extra argument”** — `scan` takes no positional path; use
-  bare `forgeos scan` (current dir) or `forgeos scan --path <dir>`.
-- **`doctor` shows `credentials: FAIL`** — this only affects the provider-backed `forge mentor`
-  CLI. Every MCP tool and all read-only commands work without it. To clear it, pick a local
-  provider: `forgeos provider use ollama` (no API key), or just ignore it.
-- **`provider` shows `claude`/`ollama` but you only use Claude Code** — that field is the CLI's
-  external-model setting; the MCP tools never use it. Ignore it for the Claude workflow.
+- **All counts are `0` / knowledge MCP tools return nothing** — the store is empty. Run
+  `forgeos scan` and add a memory or two first (see *First 5 minutes*).
+- **Execution / ownership / data-flow tools return nothing** — run **`forgeos exec-scan`** in the
+  project first; those graphs are separate from the knowledge graph.
+- **`OperationalError: database is locked`** — another process holds the project's
+  `.forgeos/cache/forge.sqlite` (usually a live Claude session whose `forgeos-mcp` server has it
+  open). Don't run `exec-scan` while an MCP session is using the same project. Free it:
+  `pkill -f forgeos-mcp` (Claude respawns it on next use), then re-run. If a crashed run left a
+  journal: `rm -f .forgeos/cache/forge.sqlite-journal .forgeos/cache/forge.sqlite-wal` (the index
+  is rebuildable from snapshots).
+- **`/mcp` shows fewer than 18 tools** — you're on an older build; `uv tool install ".[mcp]"`
+  again and start a fresh session.
+- **`scan .` errors with “unexpected extra argument”** — `scan`/`exec-scan` take no positional
+  path; use the bare command (current dir) or `--path <dir>`.
+- **`doctor` shows `credentials: FAIL`** — only affects the provider-backed `forge mentor`/`audit`
+  CLI. Every MCP tool works without it. To clear it: `forgeos provider use ollama` (no key), or
+  ignore it. The `provider` field is the CLI's external-model setting; **MCP never uses it.**
 - **`claude: command not found`, or it asks you to choose a profile** — your Claude Code is a
-  profile wrapper; use the real command (e.g. `claude-personal` / `claude-fictiv`) everywhere
-  this guide says `claude`.
-- **`/mcp` doesn't list `forgeos`** — re-run `claude mcp add forgeos -s user -- $(which forgeos-mcp)`
-  and start a fresh session from the project directory.
-- **`forgeos-mcp: command not found`** — install the MCP extra: `uv tool install ".[mcp]"`
-  (or `uv sync --extra mcp` from a clone).
-- **`git push` returns 403 / wrong account** — if you use multiple GitHub accounts, make sure
-  the active one can push: `gh auth switch --hostname github.com --user <you>`.
+  profile wrapper; use the real command (e.g. `claude-personal` / `claude-fictiv`).
+- **`forgeos-mcp: command not found`** — install the MCP extra: `uv tool install ".[mcp]"`.
+- **`git push` returns 403 / wrong account** — with multiple GitHub accounts, ensure the active
+  one can push: `gh auth switch --hostname github.com --user <you>`.
