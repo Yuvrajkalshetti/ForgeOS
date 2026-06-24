@@ -33,6 +33,7 @@ from forgeos.adapters.transport.cli.provider import provider_app
 from forgeos.adapters.transport.cli.scan import scan as scan_command
 from forgeos.adapters.transport.cli.skill import skill_app
 from forgeos.adapters.transport.cli.status import status_cmd
+from forgeos.adapters.transport.cli.sync import sync as sync_command
 from forgeos.adapters.transport.cli.tokens import tokens_app
 from forgeos.adapters.transport.cli.wizard import wizard_cmd
 from forgeos.config.loader import load_config
@@ -58,6 +59,7 @@ app.add_typer(learn_app, name="learn")
 app.add_typer(skill_app, name="skill")
 app.command(name="scan")(scan_command)
 app.command(name="exec-scan")(exec_scan)
+app.command(name="sync")(sync_command)
 app.command(name="mentor")(mentor_command)
 app.command(name="audit")(audit_command)
 app.command(name="export")(export_cmd)
